@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Picture Capture Tool</title>
+    <title>Camera Tool</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -13,113 +13,97 @@
             border: 2px solid #333;
             width: 100%;
             max-width: 400px;
-            display: block;
-            margin-bottom: 10px;
+            height: auto;
         }
         #photos {
             margin-top: 20px;
         }
-        .photo-container {
+        .controls {
             display: flex;
-            align-items: center;
-            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
         }
-        .photo-container img {
-            width: 100px;
-            height: auto;
-            margin-right: 10px;
-        }
-        .photo-container input {
-            flex-grow: 1;
-        }
-        .controls button {
-            margin: 5px;
+        .controls button, .controls input {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
-    <h1>Picture Capture Tool</h1>
-    <video id="video" autoplay></video>
-    <button id="capture">Capture</button>
-    <div id="photos"></div>
-
+    <h1>Camera Tool</h1>
+    <video id="video" autoplay playsinline></video>
     <div class="controls">
+        <button id="switch-camera">Switch Camera</button>
+        <button id="capture">Capture</button>
         <button id="save">Save File</button>
         <input type="file" id="load" accept=".json" style="display: none;">
         <button id="load-btn">Load File</button>
-        <button id="clear">Clear Session</button>
     </div>
+    <div id="photos"></div>
 
     <script>
         const video = document.getElementById('video');
-        const photosDiv = document.getElementById('photos');
         const captureButton = document.getElementById('capture');
+        const switchCameraButton = document.getElementById('switch-camera');
         const saveButton = document.getElementById('save');
         const loadButton = document.getElementById('load');
         const loadFileButton = document.getElementById('load-btn');
-        const clearButton = document.getElementById('clear');
+        const photosDiv = document.getElementById('photos');
+        let currentStream = null;
+        let useFrontCamera = false; // Start with the rear camera
         const photos = JSON.parse(localStorage.getItem('photos') || '[]');
 
         // Access the camera
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => video.srcObject = stream)
-            .catch(err => console.error("Camera access error: ", err));
-
-        // Render photos with text inputs
-        function renderPhotos() {
-            photosDiv.innerHTML = '';
-            photos.forEach((photo, index) => {
-                const container = document.createElement('div');
-                container.className = 'photo-container';
-
-                const img = document.createElement('img');
-                img.src = photo.image;
-                container.appendChild(img);
-
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.placeholder = 'Add a description...';
-                input.value = photo.text;
-                input.addEventListener('input', (e) => {
-                    photos[index].text = e.target.value;
-                    saveSession(); // Save updates to session
-                });
-                container.appendChild(input);
-
-                photosDiv.appendChild(container);
-            });
-        }
-
-        // Save session to localStorage
-        function saveSession() {
-            localStorage.setItem('photos', JSON.stringify(photos));
-        }
-
-        // Clear session with confirmation
-        clearButton.addEventListener('click', () => {
-            const confirmed = confirm("Are you sure you want to clear the session? This action cannot be undone.");
-            if (confirmed) {
-                photos.length = 0; // Clear the array
-                saveSession(); // Clear localStorage
-                renderPhotos(); // Clear the display
+        async function startCamera() {
+            // Stop any existing stream
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
+
+            try {
+                const videoConstraints = {
+                    facingMode: useFrontCamera ? 'user' : 'environment'
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+                currentStream = stream;
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Camera error:", err);
+                alert("Unable to access the camera: " + err.message);
+            }
+        }
+
+        // Switch camera button
+        switchCameraButton.addEventListener('click', () => {
+            useFrontCamera = !useFrontCamera;
+            startCamera();
         });
 
         // Capture a picture
         captureButton.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+
+            const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+            if (isLandscape) {
+                canvas.width = video.videoHeight;
+                canvas.height = video.videoWidth;
+            } else {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            }
+
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
-            photos.push({ image: imageData, text: '' });
-
-            saveSession(); // Save the captured photo to session
+            photos.push(imageData);
+            saveSession();
             renderPhotos();
         });
 
-        // Save photos as a file
+        // Save photos to a file
         saveButton.addEventListener('click', () => {
             const dataStr = JSON.stringify(photos);
             const blob = new Blob([dataStr], { type: 'application/json' });
@@ -146,14 +130,34 @@
                     const data = JSON.parse(e.target.result);
                     photos.length = 0; // Clear current photos
                     photos.push(...data); // Add new photos
-                    saveSession(); // Save to session
+                    saveSession();
                     renderPhotos();
                 };
                 reader.readAsText(file);
             }
         });
 
-        // Render existing photos on page load
+        // Save session to localStorage
+        function saveSession() {
+            localStorage.setItem('photos', JSON.stringify(photos));
+        }
+
+        // Render photos
+        function renderPhotos() {
+            photosDiv.innerHTML = '';
+            photos.forEach(photo => {
+                const img = document.createElement('img');
+                img.src = photo;
+                img.style.width = '100px'; // Thumbnail size
+                img.style.margin = '5px';
+                photosDiv.appendChild(img);
+            });
+        }
+
+        // Initialize the camera on page load
+        startCamera();
+
+        // Load saved photos on page load
         renderPhotos();
     </script>
 </body>
