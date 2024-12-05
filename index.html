@@ -70,7 +70,42 @@
         const photosDiv = document.getElementById('photos');
         let currentStream = null;
         let useFrontCamera = false; // Start with the rear camera
-        const photos = JSON.parse(localStorage.getItem('photos') || '[]');
+        let db; // IndexedDB reference
+
+        // Open IndexedDB
+        const openDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open("PhotoSessionDB", 1);
+                request.onupgradeneeded = function (event) {
+                    const db = event.target.result;
+                    db.createObjectStore("photos", { keyPath: "id", autoIncrement: true });
+                };
+                request.onsuccess = function (event) {
+                    db = event.target.result;
+                    resolve(db);
+                };
+                request.onerror = function (event) {
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        // Resize the image to reduce size
+        const resizeImage = (imageData, maxWidth, maxHeight) => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.src = imageData;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+            });
+        };
 
         // Access the camera
         async function startCamera() {
@@ -99,7 +134,7 @@
         });
 
         // Capture a picture
-        captureButton.addEventListener('click', () => {
+        captureButton.addEventListener('click', async () => {
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
 
@@ -114,18 +149,73 @@
 
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
-            photos.push({ image: imageData, text: '' });
-            saveSession();
+
+            // Resize the image before storing it
+            const resizedImage = await resizeImage(imageData, 800, 600);
+
+            // Store the resized image in IndexedDB
+            const transaction = db.transaction("photos", "readwrite");
+            const store = transaction.objectStore("photos");
+            store.add({ image: resizedImage, text: '' });
+
             renderPhotos();
         });
 
-        // Save photos to a file with date and time as filename
-        saveButton.addEventListener('click', () => {
+        // Render photos from IndexedDB
+        const renderPhotos = async () => {
+            photosDiv.innerHTML = '';
+            const transaction = db.transaction("photos", "readonly");
+            const store = transaction.objectStore("photos");
+            const photos = await store.getAll();
+            photos.onsuccess = function () {
+                photos.result.forEach((photo, index) => {
+                    const container = document.createElement('div');
+                    container.className = 'photo-container';
+
+                    const img = document.createElement('img');
+                    img.src = photo.image;
+                    container.appendChild(img);
+
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.placeholder = 'Add a description...';
+                    input.value = photo.text;
+                    input.addEventListener('input', (e) => {
+                        photo.text = e.target.value;
+
+                        // Update IndexedDB entry
+                        const updateTransaction = db.transaction("photos", "readwrite");
+                        const updateStore = updateTransaction.objectStore("photos");
+                        updateStore.put(photo);
+                    });
+                    container.appendChild(input);
+
+                    photosDiv.appendChild(container);
+                });
+            };
+        };
+
+        // Clear session
+        newSessionButton.addEventListener('click', () => {
+            const confirmClear = confirm("Are you sure you want to start a new session? All unsaved photos and notes will be lost.");
+            if (confirmClear) {
+                const transaction = db.transaction("photos", "readwrite");
+                const store = transaction.objectStore("photos");
+                store.clear();
+                renderPhotos();
+            }
+        });
+
+        // Save photos to a JSON file
+        saveButton.addEventListener('click', async () => {
+            const transaction = db.transaction("photos", "readonly");
+            const store = transaction.objectStore("photos");
+            const photos = await store.getAll();
+
             const dataStr = JSON.stringify(photos);
             const blob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
 
-            // Generate a timestamped filename
             const now = new Date();
             const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19); // Format: YYYY-MM-DDTHH-MM-SS
             const filename = `photos-${timestamp}.json`;
@@ -138,7 +228,7 @@
             URL.revokeObjectURL(url);
         });
 
-        // Load photos from a file
+        // Load photos from a JSON file
         loadFileButton.addEventListener('click', () => {
             loadButton.click();
         });
@@ -147,62 +237,23 @@
             const file = event.target.files[0];
             if (file) {
                 const reader = new FileReader();
-                reader.onload = (e) => {
+                reader.onload = async (e) => {
                     const data = JSON.parse(e.target.result);
-                    photos.length = 0; // Clear current photos
-                    photos.push(...data); // Add new photos
-                    saveSession();
+                    const transaction = db.transaction("photos", "readwrite");
+                    const store = transaction.objectStore("photos");
+                    data.forEach(photo => store.add(photo));
                     renderPhotos();
                 };
                 reader.readAsText(file);
             }
         });
 
-        // New Session button
-        newSessionButton.addEventListener('click', () => {
-            const confirmClear = confirm("Are you sure you want to start a new session? All unsaved photos and notes will be lost.");
-            if (confirmClear) {
-                photos.length = 0; // Clear all photos
-                saveSession();
-                renderPhotos();
-            }
-        });
-
-        // Save session to localStorage
-        function saveSession() {
-            localStorage.setItem('photos', JSON.stringify(photos));
-        }
-
-        // Render photos with text fields
-        function renderPhotos() {
-            photosDiv.innerHTML = '';
-            photos.forEach((photo, index) => {
-                const container = document.createElement('div');
-                container.className = 'photo-container';
-
-                const img = document.createElement('img');
-                img.src = photo.image;
-                container.appendChild(img);
-
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.placeholder = 'Add a description...';
-                input.value = photo.text;
-                input.addEventListener('input', (e) => {
-                    photos[index].text = e.target.value;
-                    saveSession();
-                });
-                container.appendChild(input);
-
-                photosDiv.appendChild(container);
-            });
-        }
-
-        // Initialize the camera on page load
-        startCamera();
-
-        // Load saved photos on page load
-        renderPhotos();
+        // Initialize IndexedDB and camera on page load
+        (async () => {
+            await openDB();
+            await renderPhotos();
+            startCamera();
+        })();
     </script>
 </body>
 </html>
