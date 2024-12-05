@@ -18,6 +18,21 @@
         #photos {
             margin-top: 20px;
         }
+        .photo-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .photo-container img {
+            width: 100px;
+            height: auto;
+            margin-right: 10px;
+        }
+        .photo-container input {
+            flex-grow: 1;
+            padding: 5px;
+            font-size: 14px;
+        }
         .controls {
             display: flex;
             flex-wrap: wrap;
@@ -40,6 +55,7 @@
         <button id="save">Save File</button>
         <input type="file" id="load" accept=".json" style="display: none;">
         <button id="load-btn">Load File</button>
+        <button id="new-session">New Session</button>
     </div>
     <div id="photos"></div>
 
@@ -50,6 +66,7 @@
         const saveButton = document.getElementById('save');
         const loadButton = document.getElementById('load');
         const loadFileButton = document.getElementById('load-btn');
+        const newSessionButton = document.getElementById('new-session');
         const photosDiv = document.getElementById('photos');
         let currentStream = null;
         let useFrontCamera = false; // Start with the rear camera
@@ -57,7 +74,6 @@
 
         // Access the camera
         async function startCamera() {
-            // Stop any existing stream
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
@@ -98,20 +114,25 @@
 
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
-            photos.push(imageData);
+            photos.push({ image: imageData, text: '' });
             saveSession();
             renderPhotos();
         });
 
-        // Save photos to a file
+        // Save photos to a file with date and time as filename
         saveButton.addEventListener('click', () => {
             const dataStr = JSON.stringify(photos);
             const blob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
 
+            // Generate a timestamped filename
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19); // Format: YYYY-MM-DDTHH-MM-SS
+            const filename = `photos-${timestamp}.json`;
+
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'photos.json';
+            a.download = filename;
             a.click();
 
             URL.revokeObjectURL(url);
@@ -137,20 +158,43 @@
             }
         });
 
+        // New Session button
+        newSessionButton.addEventListener('click', () => {
+            const confirmClear = confirm("Are you sure you want to start a new session? All unsaved photos and notes will be lost.");
+            if (confirmClear) {
+                photos.length = 0; // Clear all photos
+                saveSession();
+                renderPhotos();
+            }
+        });
+
         // Save session to localStorage
         function saveSession() {
             localStorage.setItem('photos', JSON.stringify(photos));
         }
 
-        // Render photos
+        // Render photos with text fields
         function renderPhotos() {
             photosDiv.innerHTML = '';
-            photos.forEach(photo => {
+            photos.forEach((photo, index) => {
+                const container = document.createElement('div');
+                container.className = 'photo-container';
+
                 const img = document.createElement('img');
-                img.src = photo;
-                img.style.width = '100px'; // Thumbnail size
-                img.style.margin = '5px';
-                photosDiv.appendChild(img);
+                img.src = photo.image;
+                container.appendChild(img);
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = 'Add a description...';
+                input.value = photo.text;
+                input.addEventListener('input', (e) => {
+                    photos[index].text = e.target.value;
+                    saveSession();
+                });
+                container.appendChild(input);
+
+                photosDiv.appendChild(container);
             });
         }
 
