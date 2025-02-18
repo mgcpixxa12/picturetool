@@ -83,7 +83,11 @@
     <p id="photo-count">Photos: 0</p>
     <video id="video" autoplay playsinline></video>
     <div class="controls">
+        <button id="switch-camera">Switch Camera</button>
         <button id="capture">Capture</button>
+        <button id="save-zip">Save ZIP</button>
+        <input type="file" id="load-zip" accept=".zip" style="display: none;">
+        <button id="load-zip-btn">Load ZIP</button>
         <button id="print">Print</button>
         <button id="new-session">New Session</button>
     </div>
@@ -96,92 +100,60 @@
     <script>
         const video = document.getElementById('video');
         const captureButton = document.getElementById('capture');
-        const photosDiv = document.getElementById('photos');
-        const photoCount = document.getElementById('photo-count');
-        const shutterEffect = document.getElementById('shutter');
-        let photoList = [];
+        const switchCameraButton = document.getElementById('switch-camera');
+        const saveZipButton = document.getElementById('save-zip');
+        const loadZipInput = document.getElementById('load-zip');
+        const loadZipButton = document.getElementById('load-zip-btn');
+        let currentStream = null;
+        let useFrontCamera = false;
 
         async function startCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            const constraints = {
+                video: { facingMode: useFrontCamera ? 'user' : 'environment' }
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            currentStream = stream;
             video.srcObject = stream;
         }
         startCamera();
 
-        function updatePhotoCount() {
-            photoCount.textContent = `Photos: ${photoList.length}`;
-        }
-
-        function capturePhoto() {
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/png');
-
-            const photo = { image: imageData, text: '' };
-            photoList.unshift(photo);
-            renderPhotos();
-            updatePhotoCount();
-
-            new Audio('https://www.soundjay.com/camera/sounds/camera-shutter-click-03.mp3').play();
-            shutterEffect.style.opacity = '1';
-            setTimeout(() => shutterEffect.style.opacity = '0', 100);
-        }
-
-        function renderPhotos() {
-            photosDiv.innerHTML = '';
-            photoList.forEach((photo, index) => {
-                const container = document.createElement('div');
-                container.className = 'photo-container';
-
-                const img = document.createElement('img');
-                img.src = photo.image;
-                img.onclick = () => {
-                    document.getElementById('lightbox-img').src = photo.image;
-                    document.getElementById('lightbox').style.display = 'flex';
-                };
-                container.appendChild(img);
-
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.placeholder = 'Add a description...';
-                input.value = photo.text;
-                input.oninput = () => photo.text = input.value;
-                container.appendChild(input);
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'delete-btn';
-                deleteBtn.textContent = 'X';
-                deleteBtn.onclick = () => {
-                    if (confirm('Delete this photo?')) {
-                        photoList.splice(index, 1);
-                        renderPhotos();
-                        updatePhotoCount();
-                    }
-                };
-                container.appendChild(deleteBtn);
-
-                photosDiv.appendChild(container);
-            });
-        }
-
-        captureButton.addEventListener('click', capturePhoto);
-        video.addEventListener('click', capturePhoto);
-
-        document.getElementById('print').addEventListener('click', () => {
-            const printWindow = window.open('', '', 'width=600,height=600');
-            printWindow.document.write('<html><head><title>Print</title></head><body>');
-            photoList.forEach(photo => {
-                printWindow.document.write(`<img src="${photo.image}" style="width:100px;"><p>${photo.text}</p>`);
-            });
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            printWindow.print();
+        switchCameraButton.addEventListener('click', () => {
+            useFrontCamera = !useFrontCamera;
+            startCamera();
         });
 
-        document.getElementById('new-session').addEventListener('click', () => {
-            if (confirm('Start a new session? All photos will be deleted.')) {
+        saveZipButton.addEventListener('click', () => {
+            const zip = new JSZip();
+            photoList.forEach((photo, index) => {
+                zip.file(`photo-${index + 1}.png`, photo.image.split(',')[1], { base64: true });
+                zip.file(`photo-${index + 1}.txt`, photo.text);
+            });
+            zip.generateAsync({ type: 'blob' }).then(content => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = 'photos.zip';
+                a.click();
+            });
+        });
+
+        loadZipButton.addEventListener('click', () => loadZipInput.click());
+
+        loadZipInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const zip = new JSZip();
+                const content = await zip.loadAsync(file);
                 photoList = [];
+                for (const filename in content.files) {
+                    const fileData = content.files[filename];
+                    if (filename.endsWith('.png')) {
+                        const imageData = await fileData.async('base64');
+                        photoList.push({ image: `data:image/png;base64,${imageData}`, text: '' });
+                    }
+                }
                 renderPhotos();
                 updatePhotoCount();
             }
