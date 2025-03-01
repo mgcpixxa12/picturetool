@@ -9,9 +9,9 @@
         body { font-family: Arial, sans-serif; margin: 20px; }
         video { border: 2px solid #333; width: 100%; max-width: 400px; height: auto; cursor: pointer; }
         #photos { margin-top: 20px; }
-        .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; }
-        .photo-container img { width: 100px; height: auto; margin-right: 10px; cursor: pointer; }
-        .photo-container input { flex-grow: 1; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+        .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; flex-direction: column; }
+        .photo-container img { width: 100px; height: auto; margin-bottom: 5px; cursor: pointer; }
+        .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; }
         .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
         .shutter { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; transition: opacity 0.1s ease-in-out; pointer-events: none; }
         #photo-count { font-size: 18px; font-weight: bold; }
@@ -33,7 +33,7 @@
     </style>
 </head>
 <body>
-    <h1>Camera Tool YES</h1>
+    <h1>Camera Tool</h1>
     <p id="photo-count">Photos: 0</p>
     <video id="video" autoplay playsinline></video>
     <button id="switch-camera">Switch Camera</button>
@@ -75,6 +75,10 @@
             startCamera();
         });
 
+        video.addEventListener('click', () => {
+            captureButton.click();
+        });
+
         captureButton.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
@@ -82,7 +86,7 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
-            photoList.push({ image: imageData, text: '' });
+            photoList.unshift({ image: imageData, text: '' });
             renderPhotos();
         });
 
@@ -94,7 +98,7 @@
                 div.classList.add('photo-container');
                 div.innerHTML = `
                     <img src="${photo.image}" onclick="openLightbox('${photo.image}')">
-                    <input type="text" placeholder="Add a note" value="${photo.text}" onchange="updateText(${index}, this.value)">
+                    <textarea placeholder="Add a note" onchange="updateText(${index}, this.value)">${photo.text}</textarea>
                     <button class="delete-btn" onclick="deletePhoto(${index})">Delete</button>
                 `;
                 photosDiv.appendChild(div);
