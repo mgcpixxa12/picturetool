@@ -6,61 +6,15 @@
     <title>Camera Tool with IndexedDB and ZIP</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        video {
-            border: 2px solid #333;
-            width: 100%;
-            max-width: 400px;
-            height: auto;
-            cursor: pointer;
-        }
-        #photos {
-            margin-top: 20px;
-        }
-        .photo-container {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-            position: relative;
-        }
-        .photo-container img {
-            width: 100px;
-            height: auto;
-            margin-right: 10px;
-            cursor: pointer;
-        }
-        .photo-container input {
-            flex-grow: 1;
-            padding: 5px;
-            font-size: 14px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .delete-btn {
-            background: red;
-            color: white;
-            border: none;
-            padding: 5px;
-            cursor: pointer;
-        }
-        .shutter {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: white;
-            opacity: 0;
-            transition: opacity 0.1s ease-in-out;
-            pointer-events: none;
-        }
-        #photo-count {
-            font-size: 18px;
-            font-weight: bold;
-        }
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        video { border: 2px solid #333; width: 100%; max-width: 400px; height: auto; cursor: pointer; }
+        #photos { margin-top: 20px; }
+        .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; }
+        .photo-container img { width: 100px; height: auto; margin-right: 10px; cursor: pointer; }
+        .photo-container input { flex-grow: 1; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+        .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
+        .shutter { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; transition: opacity 0.1s ease-in-out; pointer-events: none; }
+        #photo-count { font-size: 18px; font-weight: bold; }
         #lightbox {
             display: none;
             position: fixed;
@@ -79,43 +33,39 @@
     </style>
 </head>
 <body>
-    <h1>Camera Tool with IndexedDB and ZIP</h1>
+    <h1>Camera Tool YES</h1>
     <p id="photo-count">Photos: 0</p>
     <video id="video" autoplay playsinline></video>
-    <div class="controls">
-        <button id="switch-camera">Switch Camera</button>
-        <button id="capture">Capture</button>
-        <button id="save-zip">Save ZIP</button>
-        <input type="file" id="load-zip" accept=".zip" style="display: none;">
-        <button id="load-zip-btn">Load ZIP</button>
-        <button id="print">Print</button>
-        <button id="new-session">New Session</button>
-    </div>
+    <button id="switch-camera">Switch Camera</button>
+    <button id="capture">Capture</button>
+    <button id="save-zip">Save ZIP</button>
+    <input type="file" id="load-zip" accept=".zip" style="display: none;">
+    <button id="load-zip-btn">Load ZIP</button>
     <div id="photos"></div>
-    <div class="shutter" id="shutter"></div>
     <div id="lightbox" onclick="this.style.display='none'">
         <img id="lightbox-img" src="" alt="Enlarged Photo">
     </div>
 
     <script>
+        let photoList = [];
+        let useFrontCamera = false;
         const video = document.getElementById('video');
         const captureButton = document.getElementById('capture');
         const switchCameraButton = document.getElementById('switch-camera');
         const saveZipButton = document.getElementById('save-zip');
         const loadZipInput = document.getElementById('load-zip');
         const loadZipButton = document.getElementById('load-zip-btn');
-        let currentStream = null;
-        let useFrontCamera = false;
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
 
         async function startCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
             }
             const constraints = {
                 video: { facingMode: useFrontCamera ? 'user' : 'environment' }
             };
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            currentStream = stream;
             video.srcObject = stream;
         }
         startCamera();
@@ -125,39 +75,46 @@
             startCamera();
         });
 
-        saveZipButton.addEventListener('click', () => {
-            const zip = new JSZip();
+        captureButton.addEventListener('click', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+            photoList.push({ image: imageData, text: '' });
+            renderPhotos();
+        });
+
+        function renderPhotos() {
+            const photosDiv = document.getElementById('photos');
+            photosDiv.innerHTML = '';
             photoList.forEach((photo, index) => {
-                zip.file(`photo-${index + 1}.png`, photo.image.split(',')[1], { base64: true });
-                zip.file(`photo-${index + 1}.txt`, photo.text);
+                const div = document.createElement('div');
+                div.classList.add('photo-container');
+                div.innerHTML = `
+                    <img src="${photo.image}" onclick="openLightbox('${photo.image}')">
+                    <input type="text" placeholder="Add a note" value="${photo.text}" onchange="updateText(${index}, this.value)">
+                    <button class="delete-btn" onclick="deletePhoto(${index})">Delete</button>
+                `;
+                photosDiv.appendChild(div);
             });
-            zip.generateAsync({ type: 'blob' }).then(content => {
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(content);
-                a.download = 'photos.zip';
-                a.click();
-            });
-        });
+            document.getElementById('photo-count').innerText = `Photos: ${photoList.length}`;
+        }
 
-        loadZipButton.addEventListener('click', () => loadZipInput.click());
+        function openLightbox(imageSrc) {
+            lightboxImg.src = imageSrc;
+            lightbox.style.display = 'flex';
+        }
 
-        loadZipInput.addEventListener('change', async (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                const zip = new JSZip();
-                const content = await zip.loadAsync(file);
-                photoList = [];
-                for (const filename in content.files) {
-                    const fileData = content.files[filename];
-                    if (filename.endsWith('.png')) {
-                        const imageData = await fileData.async('base64');
-                        photoList.push({ image: `data:image/png;base64,${imageData}`, text: '' });
-                    }
-                }
-                renderPhotos();
-                updatePhotoCount();
-            }
-        });
+        function updateText(index, text) {
+            photoList[index].text = text;
+        }
+
+        function deletePhoto(index) {
+            photoList.splice(index, 1);
+            renderPhotos();
+        }
     </script>
 </body>
 </html>
