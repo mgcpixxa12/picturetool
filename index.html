@@ -33,7 +33,7 @@
     </style>
 </head>
 <body>
-    <h1>Camera Tool V</h1>
+    <h1>Camera Tool</h1>
     <p id="photo-count">Photos: 0</p>
     <video id="video" autoplay playsinline></video>
     <button id="switch-camera">Switch Camera</button>
@@ -108,7 +108,7 @@
                 div.innerHTML = `
                     <img src="${photo.image}" onclick="openLightbox('${photo.image}')">
                     <textarea placeholder="Add a note" onchange="updateText(${index}, this.value)">${photo.text}</textarea>
-                    <button class="delete-btn" onclick="deletePhoto(${index})">Delete</button>
+                    <button class="delete-btn" onclick="confirmDelete(${index})">Delete</button>
                 `;
                 photosDiv.appendChild(div);
             });
@@ -125,6 +125,12 @@
             saveSession();
         }
 
+        function confirmDelete(index) {
+            if (confirm('Are you sure you want to delete this photo?')) {
+                deletePhoto(index);
+            }
+        }
+
         function deletePhoto(index) {
             photoList.splice(index, 1);
             saveSession();
@@ -132,9 +138,11 @@
         }
 
         newSessionButton.addEventListener('click', () => {
-            localStorage.removeItem('photoList');
-            photoList = [];
-            renderPhotos();
+            if (confirm('Are you sure you want to start a new session? This will delete all saved photos.')) {
+                localStorage.removeItem('photoList');
+                photoList = [];
+                renderPhotos();
+            }
         });
     </script>
 </body>
