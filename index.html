@@ -11,7 +11,7 @@
         #photos { margin-top: 20px; }
         .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; flex-direction: column; }
         .photo-container img { width: 100px; height: auto; margin-bottom: 5px; cursor: pointer; }
-        .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; }
+        .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; overflow: auto; height: 100px; }
         .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
         .shutter { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; transition: opacity 0.1s ease-in-out; pointer-events: none; }
         #photo-count { font-size: 18px; font-weight: bold; }
@@ -33,12 +33,13 @@
     </style>
 </head>
 <body>
-    <h1>Camera Tool</h1>
+    <h1>Camera Tool V</h1>
     <p id="photo-count">Photos: 0</p>
     <video id="video" autoplay playsinline></video>
     <button id="switch-camera">Switch Camera</button>
     <button id="capture">Capture</button>
     <button id="save-zip">Save ZIP</button>
+    <button id="new-session">New Session</button>
     <input type="file" id="load-zip" accept=".zip" style="display: none;">
     <button id="load-zip-btn">Load ZIP</button>
     <div id="photos"></div>
@@ -47,7 +48,7 @@
     </div>
 
     <script>
-        let photoList = [];
+        let photoList = JSON.parse(localStorage.getItem('photoList')) || [];
         let useFrontCamera = false;
         const video = document.getElementById('video');
         const captureButton = document.getElementById('capture');
@@ -55,20 +56,27 @@
         const saveZipButton = document.getElementById('save-zip');
         const loadZipInput = document.getElementById('load-zip');
         const loadZipButton = document.getElementById('load-zip-btn');
+        const newSessionButton = document.getElementById('new-session');
         const lightbox = document.getElementById('lightbox');
         const lightboxImg = document.getElementById('lightbox-img');
 
-        async function startCamera() {
+        function saveSession() {
+            localStorage.setItem('photoList', JSON.stringify(photoList));
+        }
+
+        function startCamera() {
             if (video.srcObject) {
                 video.srcObject.getTracks().forEach(track => track.stop());
             }
             const constraints = {
                 video: { facingMode: useFrontCamera ? 'user' : 'environment' }
             };
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
+            navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+                video.srcObject = stream;
+            });
         }
         startCamera();
+        renderPhotos();
 
         switchCameraButton.addEventListener('click', () => {
             useFrontCamera = !useFrontCamera;
@@ -87,6 +95,7 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
             photoList.unshift({ image: imageData, text: '' });
+            saveSession();
             renderPhotos();
         });
 
@@ -113,12 +122,20 @@
 
         function updateText(index, text) {
             photoList[index].text = text;
+            saveSession();
         }
 
         function deletePhoto(index) {
             photoList.splice(index, 1);
+            saveSession();
             renderPhotos();
         }
+
+        newSessionButton.addEventListener('click', () => {
+            localStorage.removeItem('photoList');
+            photoList = [];
+            renderPhotos();
+        });
     </script>
 </body>
 </html>
