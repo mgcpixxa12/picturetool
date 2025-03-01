@@ -144,6 +144,65 @@
                 renderPhotos();
             }
         });
+saveZipButton.addEventListener('click', async () => {
+    if (photoList.length === 0) {
+        alert('No photos to save.');
+        return;
+    }
+
+    const zip = new JSZip();
+    photoList.forEach((photo, index) => {
+        // Convert base64 to binary
+        let imgData = photo.image.split(',')[1]; 
+        zip.file(`photo_${index + 1}.png`, imgData, { base64: true });
+        zip.file(`photo_${index + 1}.txt`, photo.text);
+    });
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'photo_session.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+});
+
+loadZipButton.addEventListener('click', () => {
+    loadZipInput.click();
+});
+
+loadZipInput.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const zip = new JSZip();
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+        const zipData = await zip.loadAsync(e.target.result);
+        let newPhotoList = [];
+
+        const fileKeys = Object.keys(zipData.files);
+        const imageFiles = fileKeys.filter(name => name.endsWith('.png'));
+        const textFiles = fileKeys.filter(name => name.endsWith('.txt'));
+
+        for (let imgFile of imageFiles) {
+            const imgData = await zip.file(imgFile).async('base64');
+            const textFile = textFiles.find(txt => txt.replace('.txt', '') === imgFile.replace('.png', ''));
+            let textData = textFile ? await zip.file(textFile).async('string') : '';
+
+            newPhotoList.push({ image: `data:image/png;base64,${imgData}`, text: textData });
+        }
+
+        photoList = newPhotoList;
+        saveSession();
+        renderPhotos();
+        alert('Photos and notes restored!');
+    };
+
+    reader.readAsArrayBuffer(file);
+});
+
     </script>
 </body>
 </html>
