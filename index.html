@@ -14,10 +14,31 @@
     .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; overflow: auto; height: 100px; }
     .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
     #photo-count { font-size: 18px; font-weight: bold; }
+
+    /* Fullscreen image viewer */
+    .overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      cursor: pointer;
+    }
+
+    .overlay img {
+      max-width: 90%;
+      max-height: 90%;
+      border: 5px solid white;
+      box-shadow: 0 0 20px black;
+    }
   </style>
 </head>
 <body>
-  <h1>Camera Tool V4.14.8.37</h1>
+  <h1>Camera Tool</h1>
   <p id="photo-count">Photos: 0</p>
   <video id="video" autoplay playsinline></video>
   <button id="switch-camera">Switch Camera</button>
@@ -99,11 +120,15 @@
       const photosDiv = document.getElementById('photos');
       photosDiv.innerHTML = '';
       const photos = await getAllPhotosFromIndexedDB();
+
+      // Show newest photos first
+      photos.reverse();
+
       photos.forEach((photo) => {
         const div = document.createElement('div');
         div.classList.add('photo-container');
         div.innerHTML = `
-          <img src="${photo.image}">
+          <img src="${photo.image}" onclick="showFullImage('${photo.image}')">
           <textarea placeholder="Add a note" onchange="updateText(${photo.id}, this.value)">${photo.text}</textarea>
           <button class="delete-btn" onclick="deletePhoto(${photo.id})">Delete</button>
         `;
@@ -246,6 +271,14 @@
 
       renderPhotos();
     });
+
+    function showFullImage(imageSrc) {
+      const overlay = document.createElement('div');
+      overlay.className = 'overlay';
+      overlay.innerHTML = `<img src="${imageSrc}" alt="Full View">`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    }
 
     openDatabase().then(() => {
       startCamera();
