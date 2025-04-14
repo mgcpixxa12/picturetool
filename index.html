@@ -1,194 +1,256 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Camera Tool with IndexedDB and Chrome Sync</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        video { border: 2px solid #333; width: 100%; max-width: 400px; height: auto; cursor: pointer; }
-        #photos { margin-top: 20px; }
-        .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; flex-direction: column; }
-        .photo-container img { width: 100px; height: auto; margin-bottom: 5px; cursor: pointer; }
-        .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; overflow: auto; height: 100px; }
-        .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
-        #photo-count { font-size: 18px; font-weight: bold; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Camera Tool with IndexedDB and Chrome Sync</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    video { border: 2px solid #333; width: 100%; max-width: 400px; height: auto; cursor: pointer; }
+    #photos { margin-top: 20px; }
+    .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; flex-direction: column; }
+    .photo-container img { width: 100px; height: auto; margin-bottom: 5px; cursor: pointer; }
+    .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; overflow: auto; height: 100px; }
+    .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
+    #photo-count { font-size: 18px; font-weight: bold; }
+  </style>
 </head>
 <body>
-    <h1>Camera Tool</h1>
-    <p id="photo-count">Photos: 0</p>
-    <video id="video" autoplay playsinline></video>
-    <button id="switch-camera">Switch Camera</button>
-    <button id="capture">Capture</button>
-    <button id="save-zip">Save ZIP</button>
-    <button id="new-session">New Session</button>
-    <input type="file" id="load-zip" accept=".zip" style="display: none;">
-    <button id="load-zip-btn">Load ZIP</button>
-    <div id="photos"></div>
+  <h1>Camera Tool V4.14.8.37</h1>
+  <p id="photo-count">Photos: 0</p>
+  <video id="video" autoplay playsinline></video>
+  <button id="switch-camera">Switch Camera</button>
+  <button id="capture">Capture</button>
+  <button id="save-zip">Save ZIP</button>
+  <button id="new-session">New Session</button>
+  <input type="file" id="load-zip" accept=".zip" style="display: none;">
+  <button id="load-zip-btn">Load ZIP</button>
+  <div id="photos"></div>
 
-    <script>
-        let db;
-        const DB_NAME = "PhotoDB";
-        const DB_VERSION = 1;
-        const STORE_NAME = "photos";
-        let useFrontCamera = false;
-        const video = document.getElementById('video');
-        const captureButton = document.getElementById('capture');
-        const switchCameraButton = document.getElementById('switch-camera');
-        const saveZipButton = document.getElementById('save-zip');
-        const loadZipInput = document.getElementById('load-zip');
-        const loadZipButton = document.getElementById('load-zip-btn');
-        const newSessionButton = document.getElementById('new-session');
+  <script>
+    let db;
+    const DB_NAME = "PhotoDB";
+    const DB_VERSION = 1;
+    const STORE_NAME = "photos";
+    let useFrontCamera = false;
+    const video = document.getElementById('video');
+    const captureButton = document.getElementById('capture');
+    const switchCameraButton = document.getElementById('switch-camera');
+    const saveZipButton = document.getElementById('save-zip');
+    const loadZipInput = document.getElementById('load-zip');
+    const loadZipButton = document.getElementById('load-zip-btn');
+    const newSessionButton = document.getElementById('new-session');
 
-        async function openDatabase() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
-                    }
-                };
-                request.onsuccess = () => {
-                    db = request.result;
-                    restoreSessionFromChromeSync();
-                    resolve();
-                };
-                request.onerror = () => reject(request.error);
-            });
-        }
+    async function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+          }
+        };
+        request.onsuccess = () => {
+          db = request.result;
+          restoreSessionFromChromeSync();
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+    }
 
-        function startCamera() {
-            if (video.srcObject) {
-                video.srcObject.getTracks().forEach(track => track.stop());
+    function startCamera() {
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(track => track.stop());
+      }
+      const constraints = {
+        video: { facingMode: useFrontCamera ? 'user' : 'environment' }
+      };
+      navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+        video.srcObject = stream;
+      });
+    }
+
+    async function saveToIndexedDB(photo) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.add(photo);
+        transaction.oncomplete = () => {
+          syncSessionWithChrome();
+          resolve();
+        };
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }
+
+    async function getAllPhotosFromIndexedDB() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, "readonly");
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function renderPhotos() {
+      const photosDiv = document.getElementById('photos');
+      photosDiv.innerHTML = '';
+      const photos = await getAllPhotosFromIndexedDB();
+      photos.forEach((photo) => {
+        const div = document.createElement('div');
+        div.classList.add('photo-container');
+        div.innerHTML = `
+          <img src="${photo.image}">
+          <textarea placeholder="Add a note" onchange="updateText(${photo.id}, this.value)">${photo.text}</textarea>
+          <button class="delete-btn" onclick="deletePhoto(${photo.id})">Delete</button>
+        `;
+        photosDiv.appendChild(div);
+      });
+      document.getElementById('photo-count').innerText = `Photos: ${photos.length}`;
+    }
+
+    captureButton.addEventListener('click', async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/png');
+      const photo = { image: imageData, text: '' };
+      await saveToIndexedDB(photo);
+      renderPhotos();
+    });
+
+    video.addEventListener('click', () => {
+      captureButton.click();
+    });
+
+    async function deletePhoto(id) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete(id);
+        transaction.oncomplete = () => {
+          syncSessionWithChrome();
+          renderPhotos();
+          resolve();
+        };
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }
+
+    function updateText(id, newText) {
+      const transaction = db.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const data = request.result;
+        data.text = newText;
+        store.put(data);
+        syncSessionWithChrome();
+      };
+    }
+
+    async function syncSessionWithChrome() {
+      if (chrome?.storage?.sync) {
+        const photos = await getAllPhotosFromIndexedDB();
+        chrome.storage.sync.set({ photoSession: photos }, () => {
+          console.log("Session synced with Chrome.");
+        });
+      }
+    }
+
+    function restoreSessionFromChromeSync() {
+      if (chrome?.storage?.sync) {
+        chrome.storage.sync.get("photoSession", async (data) => {
+          if (data.photoSession && data.photoSession.length > 0) {
+            const transaction = db.transaction(STORE_NAME, "readwrite");
+            const store = transaction.objectStore(STORE_NAME);
+            store.clear();
+            for (let photo of data.photoSession) {
+              await saveToIndexedDB(photo);
             }
-            const constraints = {
-                video: { facingMode: useFrontCamera ? 'user' : 'environment' }
-            };
-            navigator.mediaDevices.getUserMedia(constraints).then(stream => {
-                video.srcObject = stream;
-            });
-        }
-
-        async function saveToIndexedDB(photo) {
-            return new Promise((resolve, reject) => {
-                const transaction = db.transaction(STORE_NAME, "readwrite");
-                const store = transaction.objectStore(STORE_NAME);
-                store.add(photo);
-                transaction.oncomplete = () => {
-                    syncSessionWithChrome();
-                    resolve();
-                };
-                transaction.onerror = () => reject(transaction.error);
-            });
-        }
-
-        async function getAllPhotosFromIndexedDB() {
-            return new Promise((resolve, reject) => {
-                const transaction = db.transaction(STORE_NAME, "readonly");
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-        }
-
-        async function renderPhotos() {
-            const photosDiv = document.getElementById('photos');
-            photosDiv.innerHTML = '';
-            const photos = await getAllPhotosFromIndexedDB();
-
-            photos.forEach((photo) => {
-                const div = document.createElement('div');
-                div.classList.add('photo-container');
-                div.innerHTML = `
-                    <img src="${photo.image}">
-                    <textarea placeholder="Add a note" onchange="updateText(${photo.id}, this.value)">${photo.text}</textarea>
-                    <button class="delete-btn" onclick="deletePhoto(${photo.id})">Delete</button>
-                `;
-                photosDiv.appendChild(div);
-            });
-
-            document.getElementById('photo-count').innerText = `Photos: ${photos.length}`;
-        }
-
-        captureButton.addEventListener('click', async () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/png');
-
-            const photo = { image: imageData, text: '' };
-            await saveToIndexedDB(photo);
             renderPhotos();
+            console.log("Session restored from Chrome Sync.");
+          }
         });
+      }
+    }
 
-        video.addEventListener('click', () => {
-            captureButton.click();
-        });
+    newSessionButton.addEventListener('click', () => {
+      if (confirm('Are you sure you want to start a new session? This will delete all saved photos.')) {
+        const transaction = db.transaction(STORE_NAME, "readwrite");
+        const store = transaction.objectStore(STORE_NAME);
+        store.clear();
+        chrome?.storage?.sync?.remove("photoSession");
+        renderPhotos();
+      }
+    });
 
-        async function deletePhoto(id) {
-            return new Promise((resolve, reject) => {
-                const transaction = db.transaction(STORE_NAME, "readwrite");
-                const store = transaction.objectStore(STORE_NAME);
-                store.delete(id);
-                transaction.oncomplete = () => {
-                    syncSessionWithChrome();
-                    renderPhotos();
-                    resolve();
-                };
-                transaction.onerror = () => reject(transaction.error);
-            });
-        }
+    switchCameraButton.addEventListener('click', () => {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    });
 
-        /* --- Chrome Sync Storage --- */
+    saveZipButton.addEventListener('click', async () => {
+      const photos = await getAllPhotosFromIndexedDB();
+      if (!photos.length) {
+        alert("No photos to save!");
+        return;
+      }
 
-        async function syncSessionWithChrome() {
-            const photos = await getAllPhotosFromIndexedDB();
-            chrome.storage.sync.set({ photoSession: photos }, () => {
-                console.log("Session synced with Chrome.");
-            });
-        }
+      const zip = new JSZip();
+      const imgFolder = zip.folder("images");
+      const notesFolder = zip.folder("notes");
 
-        function restoreSessionFromChromeSync() {
-            chrome.storage.sync.get("photoSession", async (data) => {
-                if (data.photoSession && data.photoSession.length > 0) {
-                    const transaction = db.transaction(STORE_NAME, "readwrite");
-                    const store = transaction.objectStore(STORE_NAME);
-                    store.clear();
+      photos.forEach((photo, index) => {
+        const base64Data = photo.image.split(',')[1];
+        imgFolder.file(`photo_${index + 1}.png`, base64Data, { base64: true });
+        notesFolder.file(`note_${index + 1}.txt`, photo.text || '');
+      });
 
-                    for (let photo of data.photoSession) {
-                        await saveToIndexedDB(photo);
-                    }
-                    renderPhotos();
-                    console.log("Session restored from Chrome Sync.");
-                }
-            });
-        }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "photos.zip";
+      link.click();
+      URL.revokeObjectURL(url);
+    });
 
-        newSessionButton.addEventListener('click', () => {
-            if (confirm('Are you sure you want to start a new session? This will delete all saved photos.')) {
-                const transaction = db.transaction(STORE_NAME, "readwrite");
-                const store = transaction.objectStore(STORE_NAME);
-                store.clear();
-                chrome.storage.sync.remove("photoSession");
-                renderPhotos();
-            }
-        });
+    loadZipButton.addEventListener('click', () => {
+      loadZipInput.click();
+    });
 
-        switchCameraButton.addEventListener('click', () => {
-            useFrontCamera = !useFrontCamera;
-            startCamera();
-        });
+    loadZipInput.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
 
-        openDatabase().then(() => {
-            startCamera();
-            renderPhotos();
-        });
-    </script>
+      const zip = await JSZip.loadAsync(file);
+      const imageFiles = Object.keys(zip.files).filter(name => name.startsWith("images/") && name.endsWith('.png'));
+
+      const transaction = db.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      store.clear();
+
+      for (const imageName of imageFiles) {
+        const imageData = await zip.file(imageName).async('base64');
+        const noteName = imageName.replace('images/', 'notes/').replace('.png', '.txt');
+        const note = await (zip.file(noteName)?.async('string') || '');
+        const image = `data:image/png;base64,${imageData}`;
+        await saveToIndexedDB({ image, text: note });
+      }
+
+      renderPhotos();
+    });
+
+    openDatabase().then(() => {
+      startCamera();
+      renderPhotos();
+    });
+  </script>
 </body>
 </html>
