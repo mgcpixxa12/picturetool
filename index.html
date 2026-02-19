@@ -180,21 +180,21 @@
       /* Print: hide delete button */
       .delete-btn { display: none !important; }
 
-      /* Print: if a card has no notes, remove the textarea entirely (JS adds .print-no-notes) */
+      /* Print: if a card has no notes, remove textarea entirely */
       .photo-card.print-no-notes textarea { display: none !important; }
 
-      /* Print: if notes exist, show just the text area with content-sized height */
+      /* Print: turn note textarea into a fixed-height box so the grid stays consistent */
       .photo-card textarea {
-        font-size: 12pt !important;
-        line-height: 1.2 !important;
-        border: 1px solid #aaa !important;
         resize: none !important;
-        overflow: visible !important;
-        height: auto !important;      /* JS will set exact px height */
-        min-height: 0 !important;     /* allow shrinking to content */
+        overflow: hidden !important;
+        height: var(--print-note-h, 0.95in) !important; /* max container height */
+        max-height: var(--print-note-h, 0.95in) !important;
+        min-height: var(--print-note-h, 0.95in) !important;
+        line-height: 1.15 !important;
+        border: 1px solid #aaa !important;
       }
 
-      /* Keep photos reasonably sized so notes fit without shrinking text */
+      /* Keep photos reasonably sized so notes fit */
       .photo-thumb {
         max-height: 2.1in;
         object-fit: cover;
@@ -414,6 +414,44 @@
       startCamera();
     });
 
+    // ---- PRINT: dynamic font shrink-to-fit inside a fixed-height note box ----
+    const PRINT_NOTE_HEIGHT_IN = 0.95;   // max container height in inches for notes
+    const PRINT_NOTE_PADDING_PX = 16;    // matches textarea padding (8px top + 8px bottom)
+    const PRINT_FONT_MAX_PT = 12;
+    const PRINT_FONT_MIN_PT = 7;
+
+    function ptToPx(pt) {
+      // 1pt = 1/72in ; CSS assumes 96px/in => 96/72 = 1.3333 px per pt
+      return pt * (96 / 72);
+    }
+
+    function inToPx(inches) {
+      return inches * 96; // CSS px-per-inch
+    }
+
+    function fitTextareaFontToBox(textarea) {
+      // Available height inside the textarea content area
+      const boxHeightPx = inToPx(PRINT_NOTE_HEIGHT_IN);
+      const availablePx = Math.max(10, boxHeightPx - PRINT_NOTE_PADDING_PX);
+
+      // Start at max font and shrink until content fits
+      let fontPt = PRINT_FONT_MAX_PT;
+      textarea.style.fontSize = fontPt + "pt";
+      textarea.style.lineHeight = "1.15";
+
+      // Force reflow measurement
+      let safety = 200;
+      while (textarea.scrollHeight > boxHeightPx && fontPt > PRINT_FONT_MIN_PT && safety-- > 0) {
+        fontPt -= 0.5;
+        textarea.style.fontSize = fontPt + "pt";
+      }
+
+      // If still too tall (very rare), clamp overflow hidden (already) and keep min size
+      if (fontPt < PRINT_FONT_MIN_PT) {
+        textarea.style.fontSize = PRINT_FONT_MIN_PT + "pt";
+      }
+    }
+
     function applyPrintOptimizations() {
       const cards = Array.from(document.querySelectorAll('.photo-card'));
       for (const card of cards) {
@@ -422,35 +460,40 @@
 
         const text = (textarea.value || '').trim();
 
-        // If blank: hide textarea in print by adding a class
         if (!text) {
           card.classList.add('print-no-notes');
-          // Reset any inline height from previous print
-          textarea.style.height = '';
+          textarea.style.fontSize = ''; // reset
           continue;
         }
 
         card.classList.remove('print-no-notes');
 
-        // Make textarea height match its content for print (no giant empty box)
-        // Set height to scrollHeight with an extra tiny buffer
-        textarea.style.height = 'auto';
-        textarea.style.height = (textarea.scrollHeight + 2) + 'px';
+        // Ensure fixed print height (CSS uses --print-note-h)
+        textarea.style.setProperty('--print-note-h', PRINT_NOTE_HEIGHT_IN + 'in');
+
+        // Reset font size before fitting
+        textarea.style.fontSize = PRINT_FONT_MAX_PT + "pt";
+
+        // Fit font to fixed-height note box
+        fitTextareaFontToBox(textarea);
       }
     }
 
     function clearPrintOptimizations() {
-      // Clean up inline styles / classes so the app stays normal after printing
       const cards = Array.from(document.querySelectorAll('.photo-card'));
       for (const card of cards) {
         card.classList.remove('print-no-notes');
         const textarea = card.querySelector('textarea');
-        if (textarea) textarea.style.height = '';
+        if (textarea) {
+          textarea.style.fontSize = '';
+          textarea.style.lineHeight = '';
+          textarea.style.removeProperty('--print-note-h');
+        }
       }
     }
 
     printBtn.addEventListener('click', async () => {
-      // Save all visible textarea values before print
+      // Save all textarea values before print
       const cards = Array.from(document.querySelectorAll('.photo-card'));
       for (const card of cards) {
         const idText = card.querySelector('.photo-header div:last-child')?.textContent || '';
@@ -461,14 +504,11 @@
         }
       }
 
-      // Apply print-only tweaks (hide empty notes + autosize filled notes)
       applyPrintOptimizations();
-
-      // Print (CSS hides header/labels)
       window.print();
     });
 
-    // Ensure cleanup even if user prints via browser menu
+    // Cleanup even if printed via browser menu
     window.addEventListener('beforeprint', applyPrintOptimizations);
     window.addEventListener('afterprint', clearPrintOptimizations);
 
@@ -507,7 +547,6 @@
         return;
       }
 
-      // Stable ID-based export
       photos.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
 
       const zip = new JSZip();
@@ -551,7 +590,6 @@
 
       await clearAllPhotos();
 
-      // Prefer manifest
       const manifestFile = zip.file("manifest.json");
       if (manifestFile) {
         const manifestText = await manifestFile.async("string");
@@ -579,7 +617,6 @@
         }
       }
 
-      // Fallback: old format
       const imageFiles = Object.keys(zip.files)
         .filter(name => name.startsWith("images/") && name.toLowerCase().endsWith('.png'))
         .sort();
