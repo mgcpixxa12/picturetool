@@ -5,15 +5,127 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Camera Tool with IndexedDB and Chrome Sync</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
-    video { border: 2px solid #333; width: 100%; max-width: 400px; height: auto; cursor: pointer; }
-    #photos { margin-top: 20px; }
-    .photo-container { display: flex; align-items: center; margin-bottom: 10px; position: relative; flex-direction: column; }
-    .photo-container img { width: 100px; height: auto; margin-bottom: 5px; cursor: pointer; }
-    .photo-container textarea { width: 100%; padding: 5px; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; resize: vertical; overflow: auto; height: 100px; }
-    .delete-btn { background: red; color: white; border: none; padding: 5px; cursor: pointer; }
-    #photo-count { font-size: 18px; font-weight: bold; }
+
+    /* Top capture area */
+    .top {
+      display: grid;
+      gap: 12px;
+      align-items: start;
+      max-width: 1100px;
+    }
+
+    video {
+      border: 2px solid #333;
+      width: 100%;
+      max-width: 420px;
+      height: auto;
+      cursor: pointer;
+      border-radius: 10px;
+      background: #000;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+
+    #photo-count { font-size: 18px; font-weight: bold; margin: 8px 0 0; }
+
+    /* Photo grid */
+    #photos {
+      margin-top: 18px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr; /* default mobile */
+    }
+
+    /* 2 cols on medium, 4 on desktop */
+    @media (min-width: 700px) {
+      #photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .top { grid-template-columns: 420px 1fr; }
+    }
+    @media (min-width: 1100px) {
+      #photos { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    /* Photo card */
+    .photo-card {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .photo-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #444;
+      font-weight: 600;
+    }
+
+    .photo-thumb {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      border-radius: 10px;
+      cursor: pointer;
+      border: 1px solid #e6e6e6;
+      background: #f2f2f2;
+    }
+
+    .note-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #333;
+      margin-top: 2px;
+    }
+
+    .photo-card textarea {
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      resize: vertical;
+      min-height: 90px;
+      box-sizing: border-box;
+      line-height: 1.3;
+    }
+
+    .card-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .delete-btn {
+      background: #d11;
+      color: white;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .delete-btn:hover { filter: brightness(0.95); }
 
     /* Fullscreen image viewer */
     .overlay {
@@ -27,26 +139,37 @@
       align-items: center;
       z-index: 1000;
       cursor: pointer;
+      padding: 20px;
+      box-sizing: border-box;
     }
 
     .overlay img {
-      max-width: 90%;
-      max-height: 90%;
+      max-width: 95%;
+      max-height: 95%;
       border: 5px solid white;
       box-shadow: 0 0 20px black;
+      border-radius: 8px;
     }
   </style>
 </head>
+
 <body>
   <h1>Camera Tool</h1>
   <p id="photo-count">Photos: 0</p>
-  <video id="video" autoplay playsinline></video>
-  <button id="switch-camera">Switch Camera</button>
-  <button id="capture">Capture</button>
-  <button id="save-zip">Save ZIP</button>
-  <button id="new-session">New Session</button>
-  <input type="file" id="load-zip" accept=".zip" style="display: none;">
-  <button id="load-zip-btn">Load ZIP</button>
+
+  <div class="top">
+    <video id="video" autoplay playsinline></video>
+
+    <div class="controls">
+      <button id="switch-camera">Switch Camera</button>
+      <button id="capture">Capture</button>
+      <button id="save-zip">Save ZIP</button>
+      <button id="new-session">New Session</button>
+      <input type="file" id="load-zip" accept=".zip" style="display: none;">
+      <button id="load-zip-btn">Load ZIP</button>
+    </div>
+  </div>
+
   <div id="photos"></div>
 
   <script>
@@ -54,7 +177,9 @@
     const DB_NAME = "PhotoDB";
     const DB_VERSION = 1;
     const STORE_NAME = "photos";
+
     let useFrontCamera = false;
+
     const video = document.getElementById('video');
     const captureButton = document.getElementById('capture');
     const switchCameraButton = document.getElementById('switch-camera');
@@ -74,7 +199,7 @@
         };
         request.onsuccess = () => {
           db = request.result;
-          restoreSessionFromChromeSync();
+          restoreSessionFromChromeSync(); // will render after restore if needed
           resolve();
         };
         request.onerror = () => reject(request.error);
@@ -90,100 +215,157 @@
       };
       navigator.mediaDevices.getUserMedia(constraints).then(stream => {
         video.srcObject = stream;
+      }).catch(err => {
+        console.error(err);
+        alert("Could not access camera. Check permissions.");
       });
     }
 
-    async function saveToIndexedDB(photo) {
+    function tx(storeMode = "readonly") {
+      return db.transaction(STORE_NAME, storeMode).objectStore(STORE_NAME);
+    }
+
+    async function putPhoto(photo) {
+      // put() works for both new (no id) and existing (has id)
       return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        store.add(photo);
-        transaction.oncomplete = () => {
-          syncSessionWithChrome();
-          resolve();
-        };
-        transaction.onerror = () => reject(transaction.error);
+        const store = tx("readwrite");
+        const req = store.put(photo);
+        req.onsuccess = () => resolve(req.result); // returns id
+        req.onerror = () => reject(req.error);
       });
     }
 
     async function getAllPhotosFromIndexedDB() {
       return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, "readonly");
-        const store = transaction.objectStore(STORE_NAME);
+        const store = tx("readonly");
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
     }
 
+    async function deletePhoto(id) {
+      return new Promise((resolve, reject) => {
+        const store = tx("readwrite");
+        const req = store.delete(id);
+        req.onsuccess = async () => {
+          await syncSessionWithChrome();
+          await renderPhotos();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function updateText(id, newText) {
+      return new Promise((resolve, reject) => {
+        const store = tx("readwrite");
+        const req = store.get(id);
+        req.onsuccess = async () => {
+          const data = req.result;
+          if (!data) return resolve();
+          data.text = newText;
+          store.put(data);
+          await syncSessionWithChrome();
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
     async function renderPhotos() {
       const photosDiv = document.getElementById('photos');
       photosDiv.innerHTML = '';
+
       const photos = await getAllPhotosFromIndexedDB();
 
-      // Show newest photos first
-      photos.reverse();
+      // Newest first in UI
+      photos.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
 
-      photos.forEach((photo) => {
-        const div = document.createElement('div');
-        div.classList.add('photo-container');
-        div.innerHTML = `
-          <img src="${photo.image}" onclick="showFullImage('${photo.image}')">
-          <textarea placeholder="Add a note" onchange="updateText(${photo.id}, this.value)">${photo.text}</textarea>
-          <button class="delete-btn" onclick="deletePhoto(${photo.id})">Delete</button>
+      photos.forEach((photo, idx) => {
+        const card = document.createElement('div');
+        card.className = 'photo-card';
+
+        const numberLabel = `Photo #${photos.length - idx}`; // visible ordering label
+        const idLabel = `ID ${photo.id}`;
+
+        card.innerHTML = `
+          <div class="photo-header">
+            <div>${numberLabel}</div>
+            <div style="font-weight:600;color:#666;">${idLabel}</div>
+          </div>
+
+          <img class="photo-thumb" src="${photo.image}" alt="Photo thumbnail">
+
+          <div class="note-label">Notes</div>
+          <textarea placeholder="Add a note">${photo.text || ''}</textarea>
+
+          <div class="card-actions">
+            <button class="delete-btn">Delete</button>
+          </div>
         `;
-        photosDiv.appendChild(div);
+
+        // Wire up events safely (no inline handlers)
+        const img = card.querySelector('img');
+        img.addEventListener('click', () => showFullImage(photo.image));
+
+        const textarea = card.querySelector('textarea');
+        textarea.addEventListener('change', () => updateText(photo.id, textarea.value));
+
+        const delBtn = card.querySelector('.delete-btn');
+        delBtn.addEventListener('click', () => deletePhoto(photo.id));
+
+        photosDiv.appendChild(card);
       });
+
       document.getElementById('photo-count').innerText = `Photos: ${photos.length}`;
     }
 
     captureButton.addEventListener('click', async () => {
+      if (!video.videoWidth || !video.videoHeight) return;
+
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
       const imageData = canvas.toDataURL('image/png');
-      const photo = { image: imageData, text: '' };
-      await saveToIndexedDB(photo);
-      renderPhotos();
+      const newPhoto = { image: imageData, text: '' };
+
+      await putPhoto(newPhoto);
+      await syncSessionWithChrome();
+      await renderPhotos();
     });
 
-    video.addEventListener('click', () => {
-      captureButton.click();
-    });
+    // tap video to capture (handy)
+    video.addEventListener('click', () => captureButton.click());
 
-    async function deletePhoto(id) {
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE_NAME, "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        store.delete(id);
-        transaction.oncomplete = () => {
-          syncSessionWithChrome();
-          renderPhotos();
-          resolve();
-        };
-        transaction.onerror = () => reject(transaction.error);
+    newSessionButton.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to start a new session? This will delete all saved photos.')) return;
+
+      await new Promise((resolve, reject) => {
+        const store = tx("readwrite");
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
       });
-    }
 
-    function updateText(id, newText) {
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(id);
-      request.onsuccess = () => {
-        const data = request.result;
-        data.text = newText;
-        store.put(data);
-        syncSessionWithChrome();
-      };
-    }
+      chrome?.storage?.sync?.remove("photoSession");
+      await renderPhotos();
+    });
+
+    switchCameraButton.addEventListener('click', () => {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    });
 
     async function syncSessionWithChrome() {
       if (chrome?.storage?.sync) {
         const photos = await getAllPhotosFromIndexedDB();
-        chrome.storage.sync.set({ photoSession: photos }, () => {
-          console.log("Session synced with Chrome.");
+        // Store as-is with IDs so it restores perfectly
+        return new Promise((resolve) => {
+          chrome.storage.sync.set({ photoSession: photos }, () => resolve());
         });
       }
     }
@@ -192,33 +374,27 @@
       if (chrome?.storage?.sync) {
         chrome.storage.sync.get("photoSession", async (data) => {
           if (data.photoSession && data.photoSession.length > 0) {
-            const transaction = db.transaction(STORE_NAME, "readwrite");
-            const store = transaction.objectStore(STORE_NAME);
-            store.clear();
-            for (let photo of data.photoSession) {
-              await saveToIndexedDB(photo);
+            // Clear + restore with original IDs
+            await new Promise((resolve, reject) => {
+              const store = tx("readwrite");
+              const req = store.clear();
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            });
+
+            for (const photo of data.photoSession) {
+              await putPhoto(photo); // preserves id
             }
-            renderPhotos();
+            await renderPhotos();
             console.log("Session restored from Chrome Sync.");
+          } else {
+            await renderPhotos();
           }
         });
-      }
-    }
-
-    newSessionButton.addEventListener('click', () => {
-      if (confirm('Are you sure you want to start a new session? This will delete all saved photos.')) {
-        const transaction = db.transaction(STORE_NAME, "readwrite");
-        const store = transaction.objectStore(STORE_NAME);
-        store.clear();
-        chrome?.storage?.sync?.remove("photoSession");
+      } else {
         renderPhotos();
       }
-    });
-
-    switchCameraButton.addEventListener('click', () => {
-      useFrontCamera = !useFrontCamera;
-      startCamera();
-    });
+    }
 
     saveZipButton.addEventListener('click', async () => {
       const photos = await getAllPhotosFromIndexedDB();
@@ -227,15 +403,26 @@
         return;
       }
 
+      // Stable, ID-based export so images/notes never mismatch
+      photos.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+
       const zip = new JSZip();
       const imgFolder = zip.folder("images");
       const notesFolder = zip.folder("notes");
 
-      photos.forEach((photo, index) => {
-        const base64Data = photo.image.split(',')[1];
-        imgFolder.file(`photo_${index + 1}.png`, base64Data, { base64: true });
-        notesFolder.file(`note_${index + 1}.txt`, photo.text || '');
-      });
+      const manifest = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        photos: photos.map(p => ({ id: p.id, imageFile: `images/photo_${p.id}.png`, noteFile: `notes/note_${p.id}.txt` }))
+      };
+
+      for (const photo of photos) {
+        const base64Data = (photo.image || "").split(',')[1] || "";
+        imgFolder.file(`photo_${photo.id}.png`, base64Data, { base64: true });
+        notesFolder.file(`note_${photo.id}.txt`, photo.text || '');
+      }
+
+      zip.file("manifest.json", JSON.stringify(manifest, null, 2));
 
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
@@ -246,30 +433,79 @@
       URL.revokeObjectURL(url);
     });
 
-    loadZipButton.addEventListener('click', () => {
-      loadZipInput.click();
-    });
+    loadZipButton.addEventListener('click', () => loadZipInput.click());
 
     loadZipInput.addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
 
       const zip = await JSZip.loadAsync(file);
-      const imageFiles = Object.keys(zip.files).filter(name => name.startsWith("images/") && name.endsWith('.png'));
 
-      const transaction = db.transaction(STORE_NAME, "readwrite");
-      const store = transaction.objectStore(STORE_NAME);
-      store.clear();
+      // Clear current DB before import
+      await new Promise((resolve, reject) => {
+        const store = tx("readwrite");
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
 
-      for (const imageName of imageFiles) {
-        const imageData = await zip.file(imageName).async('base64');
-        const noteName = imageName.replace('images/', 'notes/').replace('.png', '.txt');
-        const note = await (zip.file(noteName)?.async('string') || '');
-        const image = `data:image/png;base64,${imageData}`;
-        await saveToIndexedDB({ image, text: note });
+      // Prefer manifest.json (best/most reliable)
+      const manifestFile = zip.file("manifest.json");
+      if (manifestFile) {
+        const manifestText = await manifestFile.async("string");
+        let manifest;
+        try {
+          manifest = JSON.parse(manifestText);
+        } catch {
+          manifest = null;
+        }
+
+        if (manifest?.photos?.length) {
+          for (const item of manifest.photos) {
+            const imgPath = item.imageFile;
+            const notePath = item.noteFile;
+
+            const img = zip.file(imgPath);
+            if (!img) continue;
+
+            const imageData = await img.async("base64");
+            const note = await (zip.file(notePath)?.async("string") || "");
+
+            await putPhoto({
+              id: item.id,
+              image: `data:image/png;base64,${imageData}`,
+              text: note
+            });
+          }
+
+          await syncSessionWithChrome();
+          await renderPhotos();
+          return;
+        }
       }
 
-      renderPhotos();
+      // Fallback: old format (images/ + notes/) by filename pairing
+      const imageFiles = Object.keys(zip.files)
+        .filter(name => name.startsWith("images/") && name.toLowerCase().endsWith('.png'))
+        .sort();
+
+      let nextId = 1;
+      for (const imageName of imageFiles) {
+        const imageData = await zip.file(imageName).async('base64');
+        const noteName = imageName
+          .replace('images/', 'notes/')
+          .replace(/\.png$/i, '.txt');
+
+        const note = await (zip.file(noteName)?.async('string') || '');
+        await putPhoto({
+          id: nextId++,
+          image: `data:image/png;base64,${imageData}`,
+          text: note
+        });
+      }
+
+      await syncSessionWithChrome();
+      await renderPhotos();
     });
 
     function showFullImage(imageSrc) {
