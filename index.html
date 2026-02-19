@@ -46,7 +46,7 @@
       margin-top: 18px;
       display: grid;
       gap: 14px;
-      grid-template-columns: 1fr; /* default mobile */
+      grid-template-columns: 1fr; /* mobile default */
     }
 
     /* 2 cols on medium, 4 on desktop */
@@ -124,7 +124,6 @@
       cursor: pointer;
       font-weight: 700;
     }
-
     .delete-btn:hover { filter: brightness(0.95); }
 
     /* Fullscreen image viewer */
@@ -150,20 +149,63 @@
       box-shadow: 0 0 20px black;
       border-radius: 8px;
     }
+
+    /* ---------- PRINT LAYOUT (4 columns, hide camera/controls) ---------- */
+    @media print {
+      .no-print { display: none !important; }
+
+      @page { margin: 0.4in; }
+      body { margin: 0; }
+
+      /* Force EXACTLY 4 columns on paper */
+      #photos {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 10px !important;
+      }
+
+      /* Avoid splitting a card across pages */
+      .photo-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        box-shadow: none !important;
+        border: 1px solid #bbb !important;
+      }
+
+      /* Keep photos reasonably sized so notes fit without shrinking text */
+      .photo-thumb {
+        max-height: 2.1in;
+        object-fit: cover;
+      }
+
+      /* Keep note font readable */
+      .photo-card textarea {
+        font-size: 12pt !important;
+        line-height: 1.2 !important;
+        min-height: 1.25in;
+        border: 1px solid #aaa !important;
+      }
+
+      /* Hide delete button in print */
+      .delete-btn { display: none !important; }
+
+      /* Never print overlay */
+      .overlay { display: none !important; }
+    }
   </style>
 </head>
 
 <body>
-  <h1>Camera Tool</h1>
-  <p id="photo-count">Photos: 0</p>
+  <h1 class="no-print">Camera Tool</h1>
+  <p id="photo-count" class="no-print">Photos: 0</p>
 
-  <div class="top">
+  <div class="top no-print">
     <video id="video" autoplay playsinline></video>
 
     <div class="controls">
       <button id="switch-camera">Switch Camera</button>
       <button id="capture">Capture</button>
       <button id="save-zip">Save ZIP</button>
+      <button id="print-btn">Print</button>
       <button id="new-session">New Session</button>
       <input type="file" id="load-zip" accept=".zip" style="display: none;">
       <button id="load-zip-btn">Load ZIP</button>
@@ -187,6 +229,7 @@
     const loadZipInput = document.getElementById('load-zip');
     const loadZipButton = document.getElementById('load-zip-btn');
     const newSessionButton = document.getElementById('new-session');
+    const printBtn = document.getElementById('print-btn');
 
     async function openDatabase() {
       return new Promise((resolve, reject) => {
@@ -199,7 +242,7 @@
         };
         request.onsuccess = () => {
           db = request.result;
-          restoreSessionFromChromeSync(); // will render after restore if needed
+          restoreSessionFromChromeSync();
           resolve();
         };
         request.onerror = () => reject(request.error);
@@ -221,16 +264,15 @@
       });
     }
 
-    function tx(storeMode = "readonly") {
-      return db.transaction(STORE_NAME, storeMode).objectStore(STORE_NAME);
+    function tx(mode = "readonly") {
+      return db.transaction(STORE_NAME, mode).objectStore(STORE_NAME);
     }
 
     async function putPhoto(photo) {
-      // put() works for both new (no id) and existing (has id)
       return new Promise((resolve, reject) => {
         const store = tx("readwrite");
         const req = store.put(photo);
-        req.onsuccess = () => resolve(req.result); // returns id
+        req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
     }
@@ -241,6 +283,15 @@
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function clearAllPhotos() {
+      return new Promise((resolve, reject) => {
+        const store = tx("readwrite");
+        const req = store.clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
       });
     }
 
@@ -286,7 +337,7 @@
         const card = document.createElement('div');
         card.className = 'photo-card';
 
-        const numberLabel = `Photo #${photos.length - idx}`; // visible ordering label
+        const numberLabel = `Photo #${photos.length - idx}`;
         const idLabel = `ID ${photo.id}`;
 
         card.innerHTML = `
@@ -305,7 +356,6 @@
           </div>
         `;
 
-        // Wire up events safely (no inline handlers)
         const img = card.querySelector('img');
         img.addEventListener('click', () => showFullImage(photo.image));
 
@@ -338,19 +388,13 @@
       await renderPhotos();
     });
 
-    // tap video to capture (handy)
-    video.addEventListener('click', () => captureButton.click());
+    video.addEventListener('click', () => {
+      captureButton.click();
+    });
 
     newSessionButton.addEventListener('click', async () => {
       if (!confirm('Are you sure you want to start a new session? This will delete all saved photos.')) return;
-
-      await new Promise((resolve, reject) => {
-        const store = tx("readwrite");
-        const req = store.clear();
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
-
+      await clearAllPhotos();
       chrome?.storage?.sync?.remove("photoSession");
       await renderPhotos();
     });
@@ -360,10 +404,26 @@
       startCamera();
     });
 
+    printBtn.addEventListener('click', async () => {
+      // Make sure any pending textarea edits are saved before print
+      const photosDiv = document.getElementById('photos');
+      const cards = Array.from(photosDiv.querySelectorAll('.photo-card'));
+      for (const card of cards) {
+        const idText = card.querySelector('.photo-header div:last-child')?.textContent || '';
+        const id = parseInt(idText.replace('ID', '').trim(), 10);
+        const textarea = card.querySelector('textarea');
+        if (Number.isFinite(id) && textarea) {
+          await updateText(id, textarea.value);
+        }
+      }
+
+      // Print only the grid (CSS hides top UI)
+      window.print();
+    });
+
     async function syncSessionWithChrome() {
       if (chrome?.storage?.sync) {
         const photos = await getAllPhotosFromIndexedDB();
-        // Store as-is with IDs so it restores perfectly
         return new Promise((resolve) => {
           chrome.storage.sync.set({ photoSession: photos }, () => resolve());
         });
@@ -374,16 +434,9 @@
       if (chrome?.storage?.sync) {
         chrome.storage.sync.get("photoSession", async (data) => {
           if (data.photoSession && data.photoSession.length > 0) {
-            // Clear + restore with original IDs
-            await new Promise((resolve, reject) => {
-              const store = tx("readwrite");
-              const req = store.clear();
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            });
-
+            await clearAllPhotos();
             for (const photo of data.photoSession) {
-              await putPhoto(photo); // preserves id
+              await putPhoto(photo); // preserves id if present
             }
             await renderPhotos();
             console.log("Session restored from Chrome Sync.");
@@ -403,7 +456,7 @@
         return;
       }
 
-      // Stable, ID-based export so images/notes never mismatch
+      // Stable ID-based export
       photos.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
 
       const zip = new JSZip();
@@ -413,7 +466,11 @@
       const manifest = {
         version: 1,
         exportedAt: new Date().toISOString(),
-        photos: photos.map(p => ({ id: p.id, imageFile: `images/photo_${p.id}.png`, noteFile: `notes/note_${p.id}.txt` }))
+        photos: photos.map(p => ({
+          id: p.id,
+          imageFile: `images/photo_${p.id}.png`,
+          noteFile: `notes/note_${p.id}.txt`
+        }))
       };
 
       for (const photo of photos) {
@@ -433,7 +490,9 @@
       URL.revokeObjectURL(url);
     });
 
-    loadZipButton.addEventListener('click', () => loadZipInput.click());
+    loadZipButton.addEventListener('click', () => {
+      loadZipInput.click();
+    });
 
     loadZipInput.addEventListener('change', async (event) => {
       const file = event.target.files[0];
@@ -441,35 +500,22 @@
 
       const zip = await JSZip.loadAsync(file);
 
-      // Clear current DB before import
-      await new Promise((resolve, reject) => {
-        const store = tx("readwrite");
-        const req = store.clear();
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
+      await clearAllPhotos();
 
-      // Prefer manifest.json (best/most reliable)
+      // Prefer manifest
       const manifestFile = zip.file("manifest.json");
       if (manifestFile) {
         const manifestText = await manifestFile.async("string");
-        let manifest;
-        try {
-          manifest = JSON.parse(manifestText);
-        } catch {
-          manifest = null;
-        }
+        let manifest = null;
+        try { manifest = JSON.parse(manifestText); } catch {}
 
         if (manifest?.photos?.length) {
           for (const item of manifest.photos) {
-            const imgPath = item.imageFile;
-            const notePath = item.noteFile;
-
-            const img = zip.file(imgPath);
+            const img = zip.file(item.imageFile);
             if (!img) continue;
 
             const imageData = await img.async("base64");
-            const note = await (zip.file(notePath)?.async("string") || "");
+            const note = await (zip.file(item.noteFile)?.async("string") || "");
 
             await putPhoto({
               id: item.id,
@@ -484,7 +530,7 @@
         }
       }
 
-      // Fallback: old format (images/ + notes/) by filename pairing
+      // Fallback: old format
       const imageFiles = Object.keys(zip.files)
         .filter(name => name.startsWith("images/") && name.toLowerCase().endsWith('.png'))
         .sort();
