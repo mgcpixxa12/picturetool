@@ -171,22 +171,34 @@
         border: 1px solid #bbb !important;
       }
 
+      /* Print: hide header labels (Photo # / ID) */
+      .photo-header { display: none !important; }
+
+      /* Print: hide the word "Notes" label */
+      .note-label { display: none !important; }
+
+      /* Print: hide delete button */
+      .delete-btn { display: none !important; }
+
+      /* Print: if a card has no notes, remove the textarea entirely (JS adds .print-no-notes) */
+      .photo-card.print-no-notes textarea { display: none !important; }
+
+      /* Print: if notes exist, show just the text area with content-sized height */
+      .photo-card textarea {
+        font-size: 12pt !important;
+        line-height: 1.2 !important;
+        border: 1px solid #aaa !important;
+        resize: none !important;
+        overflow: visible !important;
+        height: auto !important;      /* JS will set exact px height */
+        min-height: 0 !important;     /* allow shrinking to content */
+      }
+
       /* Keep photos reasonably sized so notes fit without shrinking text */
       .photo-thumb {
         max-height: 2.1in;
         object-fit: cover;
       }
-
-      /* Keep note font readable */
-      .photo-card textarea {
-        font-size: 12pt !important;
-        line-height: 1.2 !important;
-        min-height: 1.25in;
-        border: 1px solid #aaa !important;
-      }
-
-      /* Hide delete button in print */
-      .delete-btn { display: none !important; }
 
       /* Never print overlay */
       .overlay { display: none !important; }
@@ -388,9 +400,7 @@
       await renderPhotos();
     });
 
-    video.addEventListener('click', () => {
-      captureButton.click();
-    });
+    video.addEventListener('click', () => captureButton.click());
 
     newSessionButton.addEventListener('click', async () => {
       if (!confirm('Are you sure you want to start a new session? This will delete all saved photos.')) return;
@@ -404,10 +414,44 @@
       startCamera();
     });
 
+    function applyPrintOptimizations() {
+      const cards = Array.from(document.querySelectorAll('.photo-card'));
+      for (const card of cards) {
+        const textarea = card.querySelector('textarea');
+        if (!textarea) continue;
+
+        const text = (textarea.value || '').trim();
+
+        // If blank: hide textarea in print by adding a class
+        if (!text) {
+          card.classList.add('print-no-notes');
+          // Reset any inline height from previous print
+          textarea.style.height = '';
+          continue;
+        }
+
+        card.classList.remove('print-no-notes');
+
+        // Make textarea height match its content for print (no giant empty box)
+        // Set height to scrollHeight with an extra tiny buffer
+        textarea.style.height = 'auto';
+        textarea.style.height = (textarea.scrollHeight + 2) + 'px';
+      }
+    }
+
+    function clearPrintOptimizations() {
+      // Clean up inline styles / classes so the app stays normal after printing
+      const cards = Array.from(document.querySelectorAll('.photo-card'));
+      for (const card of cards) {
+        card.classList.remove('print-no-notes');
+        const textarea = card.querySelector('textarea');
+        if (textarea) textarea.style.height = '';
+      }
+    }
+
     printBtn.addEventListener('click', async () => {
-      // Make sure any pending textarea edits are saved before print
-      const photosDiv = document.getElementById('photos');
-      const cards = Array.from(photosDiv.querySelectorAll('.photo-card'));
+      // Save all visible textarea values before print
+      const cards = Array.from(document.querySelectorAll('.photo-card'));
       for (const card of cards) {
         const idText = card.querySelector('.photo-header div:last-child')?.textContent || '';
         const id = parseInt(idText.replace('ID', '').trim(), 10);
@@ -417,9 +461,16 @@
         }
       }
 
-      // Print only the grid (CSS hides top UI)
+      // Apply print-only tweaks (hide empty notes + autosize filled notes)
+      applyPrintOptimizations();
+
+      // Print (CSS hides header/labels)
       window.print();
     });
+
+    // Ensure cleanup even if user prints via browser menu
+    window.addEventListener('beforeprint', applyPrintOptimizations);
+    window.addEventListener('afterprint', clearPrintOptimizations);
 
     async function syncSessionWithChrome() {
       if (chrome?.storage?.sync) {
@@ -436,7 +487,7 @@
           if (data.photoSession && data.photoSession.length > 0) {
             await clearAllPhotos();
             for (const photo of data.photoSession) {
-              await putPhoto(photo); // preserves id if present
+              await putPhoto(photo);
             }
             await renderPhotos();
             console.log("Session restored from Chrome Sync.");
@@ -490,9 +541,7 @@
       URL.revokeObjectURL(url);
     });
 
-    loadZipButton.addEventListener('click', () => {
-      loadZipInput.click();
-    });
+    loadZipButton.addEventListener('click', () => loadZipInput.click());
 
     loadZipInput.addEventListener('change', async (event) => {
       const file = event.target.files[0];
